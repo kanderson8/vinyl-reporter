@@ -4,378 +4,527 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Record Collection Analyzer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0a0a0f;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 20px;
+            overflow-x: hidden;
         }
-        
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            padding: 40px;
-            max-width: 600px;
+
+        /* Animated background */
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
             width: 100%;
+            height: 100%;
+            background-image:
+                linear-gradient(rgba(139, 92, 246, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(139, 92, 246, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
         }
-        
+
+        .glow-orb {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.5;
+            pointer-events: none;
+            animation: float 8s ease-in-out infinite;
+        }
+
+        .glow-orb-1 {
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, #8b5cf6 0%, transparent 70%);
+            top: -100px;
+            right: -100px;
+            animation-delay: 0s;
+        }
+
+        .glow-orb-2 {
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, #06b6d4 0%, transparent 70%);
+            bottom: -50px;
+            left: -50px;
+            animation-delay: -4s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(30px, -30px) scale(1.1); }
+        }
+
+        .container {
+            background: rgba(15, 15, 25, 0.8);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 24px;
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.05),
+                0 25px 50px -12px rgba(0, 0, 0, 0.8),
+                0 0 100px rgba(139, 92, 246, 0.1);
+            padding: 48px;
+            max-width: 560px;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .vinyl-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            position: relative;
+            animation: spin-slow 8s linear infinite;
+        }
+
+        .vinyl-icon::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background:
+                radial-gradient(circle at center, #1a1a2e 0%, #1a1a2e 15%, transparent 15%),
+                radial-gradient(circle at center, transparent 30%, rgba(139, 92, 246, 0.3) 31%, transparent 32%),
+                radial-gradient(circle at center, transparent 45%, rgba(139, 92, 246, 0.2) 46%, transparent 47%),
+                radial-gradient(circle at center, transparent 60%, rgba(139, 92, 246, 0.1) 61%, transparent 62%),
+                conic-gradient(from 0deg, #1a1a2e, #2d2d44, #1a1a2e, #2d2d44, #1a1a2e);
+            box-shadow:
+                0 0 20px rgba(139, 92, 246, 0.3),
+                inset 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .vinyl-icon::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+        }
+
+        @keyframes spin-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
         h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 2.5em;
+            color: #fff;
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
-        
+
         .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 1.1em;
+            color: #6b7280;
+            font-size: 1rem;
+            font-weight: 400;
         }
-        
+
         .auth-section {
-            margin-bottom: 30px;
-            padding: 20px;
-            background: #f8f9ff;
-            border-radius: 10px;
+            margin-bottom: 24px;
+            padding: 24px;
+            background: rgba(139, 92, 246, 0.05);
+            border: 1px solid rgba(139, 92, 246, 0.1);
+            border-radius: 16px;
         }
-        
+
         .auth-info {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
+            margin-bottom: 16px;
         }
-        
+
         .user-info {
-            color: #667eea;
+            color: #8b5cf6;
             font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        
+
+        .user-info::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #10b981;
+        }
+
         .btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
             color: white;
             border: none;
-            padding: 12px 30px;
-            border-radius: 10px;
-            font-size: 1em;
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.95rem;
             font-weight: 600;
             cursor: pointer;
             text-decoration: none;
-            display: inline-block;
-            transition: transform 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
         }
-        
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+
         .btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 10px 40px rgba(139, 92, 246, 0.4);
         }
-        
+
+        .btn:hover::before {
+            left: 100%;
+        }
+
         .btn:disabled {
-            opacity: 0.6;
+            opacity: 0.5;
             cursor: not-allowed;
             transform: none;
         }
-        
+
         .btn-secondary {
-            background: #6c757d;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 10px 20px;
+            font-size: 0.85rem;
         }
-        
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: none;
+        }
+
         .btn-large {
             width: 100%;
-            padding: 15px 40px;
-            font-size: 1.1em;
-            margin-top: 10px;
+            padding: 16px 32px;
+            font-size: 1rem;
         }
-        
-        .divider {
-            text-align: center;
-            margin: 30px 0;
-            color: #999;
-            position: relative;
-        }
-        
-        .divider::before,
-        .divider::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            width: 40%;
-            height: 1px;
-            background: #ddd;
-        }
-        
-        .divider::before {
-            left: 0;
-        }
-        
-        .divider::after {
-            right: 0;
-        }
-        
-        .upload-area {
-            border: 3px dashed #667eea;
-            border-radius: 15px;
-            padding: 40px;
-            text-align: center;
-            background: #f8f9ff;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-        
-        .upload-area:hover {
-            border-color: #764ba2;
-            background: #f0f2ff;
-        }
-        
-        .upload-area.dragover {
-            border-color: #764ba2;
-            background: #e8ebff;
-        }
-        
-        input[type="file"] {
-            display: none;
-        }
-        
-        .upload-icon {
-            font-size: 3em;
-            margin-bottom: 20px;
-        }
-        
-        .upload-text {
-            color: #667eea;
-            font-size: 1.2em;
-            font-weight: 600;
-            margin-bottom: 10px;
-        }
-        
-        .upload-hint {
-            color: #999;
-            font-size: 0.9em;
-        }
-        
+
         .loading {
             display: none;
-            text-align: center;
-            margin-top: 20px;
+            margin-top: 24px;
+            padding: 24px;
+            background: rgba(139, 92, 246, 0.05);
+            border-radius: 12px;
         }
-        
+
         .loading.active {
             display: block;
         }
-        
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
+
+        .progress-steps {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .progress-step {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 0;
+            color: #4b5563;
+            font-size: 0.9rem;
+            transition: color 0.3s ease;
+        }
+
+        .progress-step.active {
+            color: #a5b4fc;
+        }
+
+        .progress-step.done {
+            color: #10b981;
+        }
+
+        .progress-step.error {
+            color: #f87171;
+        }
+
+        .step-icon {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .step-spinner {
+            width: 18px;
+            height: 18px;
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 10px;
+            border: 2px solid rgba(139, 92, 246, 0.2);
+            border-top-color: #8b5cf6;
+            animation: spin 0.8s linear infinite;
         }
-        
+
+        .step-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4b5563;
+        }
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
         }
-        
+
         .error {
-            color: #e74c3c;
-            margin-top: 15px;
-            padding: 10px;
-            background: #fee;
-            border-radius: 5px;
+            color: #f87171;
+            margin-top: 16px;
+            padding: 14px 18px;
+            background: rgba(248, 113, 113, 0.1);
+            border: 1px solid rgba(248, 113, 113, 0.2);
+            border-radius: 10px;
             display: none;
+            font-size: 0.9rem;
         }
-        
+
         .error.active {
             display: block;
+        }
+
+        .hint-text {
+            margin-top: 16px;
+            color: #6b7280;
+            font-size: 0.85rem;
+            text-align: center;
         }
     </style>
 </head>
 <body>
+    <div class="bg-grid"></div>
+    <div class="glow-orb glow-orb-1"></div>
+    <div class="glow-orb glow-orb-2"></div>
+
     <div class="container">
-        <h1>🎵 Record Collection Analyzer</h1>
-        <p class="subtitle">Connect with Discogs or upload your collection CSV</p>
-        
+        <div class="header">
+            <div class="vinyl-icon"></div>
+            <h1>Record Collection Analyzer</h1>
+            <p class="subtitle">AI-powered insights for your vinyl collection</p>
+        </div>
+
         {% if is_authenticated %}
         <div class="auth-section">
             <div class="auth-info">
-                <span class="user-info">Logged in as: {{ username }}</span>
+                <span class="user-info">{{ username }}</span>
                 <a href="/logout" class="btn btn-secondary">Logout</a>
             </div>
-            <button id="generateReportBtn" class="btn btn-large">Generate Report from Discogs</button>
+            <button id="generateReportBtn" class="btn btn-large">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                    <path d="M2 17l10 5 10-5"/>
+                    <path d="M2 12l10 5 10-5"/>
+                </svg>
+                Generate Report from Discogs
+            </button>
             <div class="loading" id="reportLoading">
-                <div class="spinner"></div>
-                <p>Fetching your collection from Discogs... This may take a moment.</p>
+                <ul class="progress-steps">
+                    <li class="progress-step" id="step-connect">
+                        <span class="step-icon"><span class="step-dot"></span></span>
+                        <span class="step-text">Connecting to Discogs</span>
+                    </li>
+                    <li class="progress-step" id="step-fetch">
+                        <span class="step-icon"><span class="step-dot"></span></span>
+                        <span class="step-text">Fetching your collection</span>
+                    </li>
+                    <li class="progress-step" id="step-analyze">
+                        <span class="step-icon"><span class="step-dot"></span></span>
+                        <span class="step-text">Analyzing with AI</span>
+                    </li>
+                    <li class="progress-step" id="step-done">
+                        <span class="step-icon"><span class="step-dot"></span></span>
+                        <span class="step-text">Building your report</span>
+                    </li>
+                </ul>
             </div>
             <div class="error" id="reportError"></div>
         </div>
-        
-        <div class="divider">OR</div>
+
         {% else %}
         <div class="auth-section">
-            <a href="/login" class="btn btn-large">Login with Discogs</a>
-            <p style="margin-top: 15px; color: #666; font-size: 0.9em;">
-                Connect your Discogs account to automatically analyze your collection
-            </p>
+            <a href="/login" class="btn btn-large">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <circle cx="12" cy="12" r="3"/>
+                </svg>
+                Login with Discogs
+            </a>
+            <p class="hint-text">Connect your Discogs account to analyze your collection</p>
         </div>
-        
-        <div class="divider">OR</div>
         {% endif %}
-        
-        <form id="uploadForm">
-            <div class="upload-area" id="uploadArea">
-                <div class="upload-icon">📀</div>
-                <div class="upload-text">Click to upload or drag & drop</div>
-                <div class="upload-hint">CSV file from Discogs collection export</div>
-                <input type="file" id="fileInput" name="file" accept=".csv">
-            </div>
-            
-            <button type="submit" id="submitBtn" class="btn btn-large">Analyze Collection from CSV</button>
-            
-            <div class="error" id="errorMsg"></div>
-            
-            <div class="loading" id="loading">
-                <div class="spinner"></div>
-                <p>Analyzing your collection... This may take a moment.</p>
-            </div>
-        </form>
     </div>
-    
+
     <script>
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const uploadForm = document.getElementById('uploadForm');
-        const submitBtn = document.getElementById('submitBtn');
-        const loading = document.getElementById('loading');
-        const errorMsg = document.getElementById('errorMsg');
-        
         {% if is_authenticated %}
         const generateReportBtn = document.getElementById('generateReportBtn');
         const reportLoading = document.getElementById('reportLoading');
         const reportError = document.getElementById('reportError');
-        
-        generateReportBtn.addEventListener('click', async () => {
+
+        const steps = ['step-connect', 'step-fetch', 'step-analyze', 'step-done'];
+
+        function setStepActive(stepId) {
+            const step = document.getElementById(stepId);
+            if (!step) return;
+            step.classList.add('active');
+            step.classList.remove('done');
+            step.querySelector('.step-icon').innerHTML = '<span class="step-spinner"></span>';
+        }
+
+        function setStepDone(stepId, message) {
+            const step = document.getElementById(stepId);
+            if (!step) return;
+            step.classList.remove('active');
+            step.classList.add('done');
+            step.querySelector('.step-icon').innerHTML = `
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>`;
+            if (message) {
+                step.querySelector('.step-text').textContent = message;
+            }
+        }
+
+        function setStepError(stepId, message) {
+            const step = document.getElementById(stepId);
+            if (!step) return;
+            step.classList.remove('active');
+            step.classList.add('error');
+            step.querySelector('.step-icon').innerHTML = `
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>`;
+            if (message) {
+                step.querySelector('.step-text').textContent = message;
+            }
+        }
+
+        function resetSteps() {
+            steps.forEach(id => {
+                const step = document.getElementById(id);
+                if (!step) return;
+                step.className = 'progress-step';
+                step.querySelector('.step-icon').innerHTML = '<span class="step-dot"></span>';
+            });
+        }
+
+        generateReportBtn.addEventListener('click', () => {
             generateReportBtn.disabled = true;
+            generateReportBtn.style.display = 'none';
             reportLoading.classList.add('active');
             reportError.classList.remove('active');
-            
-            try {
-                const response = await fetch('/generate-report', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
+            resetSteps();
+
+            const evtSource = new EventSource('/generate-report-stream');
+
+            evtSource.addEventListener('status', (e) => {
+                const data = JSON.parse(e.data);
+                const step = data.step;
+                const message = data.message;
+
+                // Mark previous steps as done
+                const stepIndex = steps.indexOf(step);
+                for (let i = 0; i < stepIndex; i++) {
+                    const prev = document.getElementById(steps[i]);
+                    if (prev && !prev.classList.contains('done')) {
+                        setStepDone(steps[i]);
+                    }
+                }
+
+                setStepActive(step);
+                if (message) {
+                    document.getElementById(step).querySelector('.step-text').textContent = message;
+                }
+            });
+
+            evtSource.addEventListener('complete', (e) => {
+                evtSource.close();
+                // Mark all steps done
+                steps.forEach(id => {
+                    const s = document.getElementById(id);
+                    if (s && !s.classList.contains('done')) {
+                        setStepDone(id);
                     }
                 });
-                
-                const data = await response.json();
-                
-                if (response.ok && data.success) {
-                    window.location.href = '/results';
-                } else {
-                    showReportError(data.error || 'An error occurred');
+                setTimeout(() => { window.location.href = '/results'; }, 500);
+            });
+
+            evtSource.addEventListener('error_msg', (e) => {
+                evtSource.close();
+                const data = JSON.parse(e.data);
+                // Find the current active step and mark it as error
+                const activeStep = document.querySelector('.progress-step.active');
+                if (activeStep) {
+                    setStepError(activeStep.id, data.message);
                 }
-            } catch (error) {
-                showReportError('Network error: ' + error.message);
-            } finally {
-                reportLoading.classList.remove('active');
+                reportError.textContent = data.message;
+                reportError.classList.add('active');
                 generateReportBtn.disabled = false;
-            }
-        });
-        
-        function showReportError(message) {
-            reportError.textContent = message;
-            reportError.classList.add('active');
-        }
-        {% endif %}
-        
-        // Click to upload
-        uploadArea.addEventListener('click', () => fileInput.click());
-        
-        // Drag and drop
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-        
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-        
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                fileInput.files = files;
-                updateUploadText(files[0].name);
-            }
-        });
-        
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                updateUploadText(e.target.files[0].name);
-            }
-        });
-        
-        function updateUploadText(filename) {
-            const uploadText = uploadArea.querySelector('.upload-text');
-            uploadText.textContent = filename;
-        }
-        
-        uploadForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const file = fileInput.files[0];
-            if (!file) {
-                showError('Please select a file');
-                return;
-            }
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            // Show loading, hide error
-            loading.classList.add('active');
-            errorMsg.classList.remove('active');
-            submitBtn.disabled = true;
-            
-            try {
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok && data.success) {
-                    // Redirect to results page
-                    window.location.href = '/results';
-                } else {
-                    showError(data.error || 'An error occurred');
+                generateReportBtn.style.display = '';
+            });
+
+            evtSource.onerror = () => {
+                evtSource.close();
+                const activeStep = document.querySelector('.progress-step.active');
+                if (activeStep) {
+                    setStepError(activeStep.id, 'Connection lost');
                 }
-            } catch (error) {
-                showError('Network error: ' + error.message);
-            } finally {
-                loading.classList.remove('active');
-                submitBtn.disabled = false;
-            }
+                reportError.textContent = 'Connection lost. Please try again.';
+                reportError.classList.add('active');
+                generateReportBtn.disabled = false;
+                generateReportBtn.style.display = '';
+            };
         });
-        
-        function showError(message) {
-            errorMsg.textContent = message;
-            errorMsg.classList.add('active');
-        }
+        {% endif %}
     </script>
 </body>
 </html>

@@ -1,9 +1,7 @@
 import os
-import csv
-import io
 import time
 from datetime import timedelta
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context
 from openai import OpenAI
 import json
 
@@ -18,6 +16,17 @@ app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-producti
 app.permanent_session_lifetime = timedelta(hours=1)
 
 oauth_token_cache = {}
+
+# Cache for fetched Discogs collections, keyed by username.
+# Each entry: {'data': [...], 'timestamp': float}
+collection_cache = {}
+COLLECTION_CACHE_TTL = 600  # seconds (10 minutes)
+
+# Temporary store for analysis results from SSE streams.
+# Flask's cookie-based session can't be written from inside a streaming
+# generator (headers are sent before the body), so we stash the result
+# here keyed by session ID and retrieve it in /results.
+pending_analysis = {}
 
 DISCOGS_CONSUMER_KEY = os.environ.get('DISCOGS_CONSUMER_KEY')
 DISCOGS_CONSUMER_SECRET = os.environ.get('DISCOGS_CONSUMER_SECRET')
@@ -51,92 +60,112 @@ def get_discogs_client():
     except ImportError:
         raise ValueError("discogs-client library not installed. Run: pip install discogs-client")
 
-def parse_discogs_csv(file_content):
-    """Parse Discogs CSV file and extract collection data."""
-    collection_data = []
+COLLECTION_CACHE_FILE = os.path.join(os.path.dirname(__file__), '.collection_cache.json')
+
+def _load_cache_file():
+    """Load the on-disk collection cache."""
     try:
-        if isinstance(file_content, bytes):
-            file_content = file_content.decode('utf-8')
-        
-        csv_reader = csv.DictReader(io.StringIO(file_content))
-        for row in csv_reader:
-            album_info = {
-                'artist': row.get('Artist', row.get('artist', '')),
-                'album': row.get('Album', row.get('album', row.get('Title', ''))),
-                'label': row.get('Label', row.get('label', '')),
-                'year': row.get('Year', row.get('year', '')),
-                'genre': row.get('Genre', row.get('genre', '')),
-                'format': row.get('Format', row.get('format', ''))
-            }
-            collection_data.append(album_info)
-    except Exception as e:
-        raise ValueError(f"Error parsing CSV: {str(e)}")
-    
-    return collection_data
+        with open(COLLECTION_CACHE_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _save_cache_file(cache):
+    """Write the collection cache to disk."""
+    with open(COLLECTION_CACHE_FILE, 'w') as f:
+        json.dump(cache, f)
+
+def get_cached_collection(username):
+    """Return cached collection data for username if fresh, else None."""
+    # Check in-memory first, then fall back to disk.
+    entry = collection_cache.get(username)
+    if not entry:
+        disk_cache = _load_cache_file()
+        entry = disk_cache.get(username)
+        if entry:
+            collection_cache[username] = entry  # promote to memory
+    if entry and (time.time() - entry['timestamp']) < COLLECTION_CACHE_TTL:
+        return entry['data']
+    return None
+
+def set_cached_collection(username, data):
+    """Store collection data in the cache (memory + disk)."""
+    entry = {'data': data, 'timestamp': time.time()}
+    collection_cache[username] = entry
+    disk_cache = _load_cache_file()
+    disk_cache[username] = entry
+    _save_cache_file(disk_cache)
 
 def fetch_collection_from_discogs():
-    """Fetch user's collection from Discogs API."""
+    """Fetch user's collection from Discogs API, using cache if available."""
     try:
         client = get_discogs_client()
         user = client.identity()
-        
+
+        cached = get_cached_collection(user.username)
+        if cached is not None:
+            return cached, user.username
+
         collection_data = []
-        
+
         try:
             folders = user.collection_folders
         except Exception as e:
             raise ValueError(f"Could not access collection folders: {str(e)}")
-        
+
         if not folders or len(folders) == 0:
             return [], user.username
-        
-        for folder in folders:
+
+        # Folder 0 is the "All" folder containing every release.
+        # Iterating all folders would double-count since other folders
+        # are subsets of "All".
+        all_folder = folders[0]
+        releases = all_folder.releases
+
+        for item in releases:
             try:
-                releases = folder.releases
-            except Exception as e:
+                release = item.release
+                artists = [artist.name for artist in release.artists] if release.artists else []
+                artist_name = ', '.join(artists) if artists else 'Unknown Artist'
+
+                genres = release.genres if hasattr(release, 'genres') and release.genres else []
+                genre = ', '.join(genres) if genres else ''
+
+                styles = release.styles if hasattr(release, 'styles') and release.styles else []
+                style = ', '.join(styles) if styles else ''
+
+                labels = [label.name for label in release.labels] if hasattr(release, 'labels') and release.labels else []
+                label_name = ', '.join(labels) if labels else ''
+
+                formats = []
+                if hasattr(release, 'formats') and release.formats:
+                    for f in release.formats:
+                        if isinstance(f, dict):
+                            formats.append(f.get('name', ''))
+                        elif hasattr(f, 'name'):
+                            formats.append(f.name)
+                format_str = ', '.join([f for f in formats if f]) if formats else ''
+
+                album_info = {
+                    'artist': artist_name,
+                    'album': release.title,
+                    'label': label_name,
+                    'year': str(release.year) if release.year else '',
+                    'genre': genre or style,
+                    'format': format_str
+                }
+                collection_data.append(album_info)
+
+                time.sleep(0.25)
+
+            except Exception:
                 continue
-            
-            for item in releases:
-                try:
-                    release = item.release
-                    artists = [artist.name for artist in release.artists] if release.artists else []
-                    artist_name = ', '.join(artists) if artists else 'Unknown Artist'
-                    
-                    genres = release.genres if hasattr(release, 'genres') and release.genres else []
-                    genre = ', '.join(genres) if genres else ''
-                    
-                    styles = release.styles if hasattr(release, 'styles') and release.styles else []
-                    style = ', '.join(styles) if styles else ''
-                    
-                    labels = [label.name for label in release.labels] if hasattr(release, 'labels') and release.labels else []
-                    label_name = ', '.join(labels) if labels else ''
-                    
-                    formats = []
-                    if hasattr(release, 'formats') and release.formats:
-                        for f in release.formats:
-                            if isinstance(f, dict):
-                                formats.append(f.get('name', ''))
-                            elif hasattr(f, 'name'):
-                                formats.append(f.name)
-                    format_str = ', '.join([f for f in formats if f]) if formats else ''
-                    
-                    album_info = {
-                        'artist': artist_name,
-                        'album': release.title,
-                        'label': label_name,
-                        'year': str(release.year) if release.year else '',
-                        'genre': genre or style,
-                        'format': format_str
-                    }
-                    collection_data.append(album_info)
-                    
-                    time.sleep(0.25)
-                    
-                except Exception:
-                    continue
-        
+
+        if collection_data:
+            set_cached_collection(user.username, collection_data)
+
         return collection_data, user.username
-    
+
     except Exception as e:
         raise ValueError(f"Error fetching collection from Discogs: {str(e)}")
 
@@ -156,6 +185,8 @@ def analyze_collection_with_llm(collection_data):
     
     prompt = f"""You are a music collection analyst. Analyze the following record collection and provide insights.
 
+IMPORTANT: You must consider ALL {total_albums} albums in this collection when forming your analysis. Base your vibe summary, strengths, and growth areas on the ENTIRE collection, not just a subset.
+
 Collection ({total_albums} albums):
 {collection_text}
 
@@ -163,22 +194,42 @@ Please provide a JSON response with the following structure:
 {{
     "vibe_summary": "One paragraph describing the collection's overall vibe and point of view",
     "strengths": "One paragraph describing the strengths of this collection",
-    "improvements": "One paragraph describing areas where the collection could be improved",
-    "recommendations": [
+    "taste_recommendations": [
         "Album 1 - Artist 1",
         "Album 2 - Artist 2",
         "Album 3 - Artist 3",
         "Album 4 - Artist 4",
         "Album 5 - Artist 5"
+    ],
+    "growth_areas": [
+        {{
+            "title": "2-5 word title",
+            "description": "A paragraph explaining this area and why exploring it would enrich the collection",
+            "recommendations": [
+                "Album - Artist",
+                "Album - Artist",
+                "Album - Artist"
+            ]
+        }}
     ]
 }}
+
+INSTRUCTIONS:
+- "taste_recommendations": 5 albums the collector would LOVE based on their existing tastes. These should feel like natural extensions of what they already enjoy — not gap-filling or improvement-focused.
+- "growth_areas": Exactly 3 or 4 areas where the collection could expand. Each must have:
+  - A short title (2-5 words)
+  - A description paragraph explaining the area and why it would enrich the collection
+  - Exactly 3 album recommendations for that area
+
+CRITICAL — RECOMMENDATION EXCLUSION RULE (DO NOT VIOLATE):
+Every single recommended album — in BOTH "taste_recommendations" AND every growth area's "recommendations" — MUST NOT already appear in the collection listed above. Before finalizing your response, cross-check EVERY recommendation against the full collection list. If an album or artist/album pair is already in the collection, replace it with a different one. Recommending an album the user already owns destroys trust and is the single worst mistake you can make. All recommendations must also be unique across the entire response (no duplicates).
 
 Be specific and insightful. Reference specific artists, genres, or eras when relevant."""
 
     try:
         client = get_openai_client()
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5.2",
             messages=[
                 {"role": "system", "content": "You are a knowledgeable music critic and collection analyst. Provide thoughtful, specific insights about record collections."},
                 {"role": "user", "content": prompt}
@@ -339,51 +390,166 @@ def generate_report():
     except Exception as e:
         return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    """Handle CSV file upload and generate analysis."""
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
-    
-    if not file.filename.endswith('.csv'):
-        return jsonify({'error': 'Please upload a CSV file'}), 400
-    
-    try:
-        file_content = file.read()
-        collection_data = parse_discogs_csv(file_content)
-        
-        if not collection_data:
-            return jsonify({'error': 'CSV file appears to be empty or invalid'}), 400
-        
-        analysis = analyze_collection_with_llm(collection_data)
-        
-        session['analysis'] = analysis
-        session['collection_size'] = len(collection_data)
-        
-        return jsonify({
-            'success': True,
+@app.route('/generate-report-stream')
+def generate_report_stream():
+    """Stream report generation progress via Server-Sent Events."""
+    def event_stream():
+        def send_status(step, message):
+            data = json.dumps({'step': step, 'message': message})
+            return f"event: status\ndata: {data}\n\n"
+
+        def send_error(message):
+            data = json.dumps({'message': message})
+            return f"event: error_msg\ndata: {data}\n\n"
+
+        def send_complete():
+            return "event: complete\ndata: {}\n\n"
+
+        # Step 1: Connect to Discogs
+        yield send_status('step-connect', 'Connecting to Discogs...')
+
+        if not session.get('discogs_token') or not session.get('discogs_token_secret'):
+            yield send_error('Not authenticated with Discogs. Please log in again.')
+            return
+
+        try:
+            client = get_discogs_client()
+            user = client.identity()
+        except Exception as e:
+            yield send_error(f'Failed to connect to Discogs: {str(e)}')
+            return
+
+        # Step 2: Fetch collection (check cache first)
+        cached = get_cached_collection(user.username)
+        if cached is not None:
+            collection_data = cached
+            yield send_status('step-fetch', f'Using cached collection ({len(collection_data)} albums)')
+            yield send_status('step-analyze', f'Analyzing {len(collection_data)} albums with AI...')
+        else:
+            yield send_status('step-fetch', f'Fetching collection for {user.username}...')
+
+            try:
+                collection_data = []
+                try:
+                    folders = user.collection_folders
+                except Exception as e:
+                    yield send_error(f'Could not access collection folders: {str(e)}')
+                    return
+
+                if not folders or len(folders) == 0:
+                    yield send_error('Your Discogs collection appears to be empty.')
+                    return
+
+                # Folder 0 is the "All" folder containing every release.
+                # Iterating all folders would double-count since other folders
+                # are subsets of "All".
+                all_folder = folders[0]
+
+                album_count = 0
+                try:
+                    releases = all_folder.releases
+                except Exception as e:
+                    yield send_error(f'Could not access collection releases: {str(e)}')
+                    return
+
+                for item in releases:
+                    try:
+                        release = item.release
+                        artists = [artist.name for artist in release.artists] if release.artists else []
+                        artist_name = ', '.join(artists) if artists else 'Unknown Artist'
+
+                        genres = release.genres if hasattr(release, 'genres') and release.genres else []
+                        genre = ', '.join(genres) if genres else ''
+
+                        styles = release.styles if hasattr(release, 'styles') and release.styles else []
+                        style = ', '.join(styles) if styles else ''
+
+                        labels = [label.name for label in release.labels] if hasattr(release, 'labels') and release.labels else []
+                        label_name = ', '.join(labels) if labels else ''
+
+                        formats = []
+                        if hasattr(release, 'formats') and release.formats:
+                            for f in release.formats:
+                                if isinstance(f, dict):
+                                    formats.append(f.get('name', ''))
+                                elif hasattr(f, 'name'):
+                                    formats.append(f.name)
+                        format_str = ', '.join([f for f in formats if f]) if formats else ''
+
+                        album_info = {
+                            'artist': artist_name,
+                            'album': release.title,
+                            'label': label_name,
+                            'year': str(release.year) if release.year else '',
+                            'genre': genre or style,
+                            'format': format_str
+                        }
+                        collection_data.append(album_info)
+                        album_count += 1
+
+                        if album_count % 10 == 0:
+                            yield send_status('step-fetch', f'Fetching collection... {album_count} albums found')
+
+                        time.sleep(0.25)
+                    except Exception:
+                        continue
+
+                if not collection_data:
+                    yield send_error('No albums found in your collection.')
+                    return
+
+                set_cached_collection(user.username, collection_data)
+                yield send_status('step-analyze', f'Analyzing {len(collection_data)} albums with AI...')
+
+            except Exception as e:
+                yield send_error(f'Error fetching collection: {str(e)}')
+                return
+
+        # Step 3: LLM analysis
+        try:
+            analysis = analyze_collection_with_llm(collection_data)
+        except Exception as e:
+            yield send_error(f'Error during analysis: {str(e)}')
+            return
+
+        # Step 4: Save and complete
+        yield send_status('step-done', 'Building your report...')
+        # Can't write session from inside a streaming generator (headers
+        # already sent), so stash in server-side dict for /results to pick up.
+        sid = session.get('discogs_token', 'anon')
+        pending_analysis[sid] = {
             'analysis': analysis,
-            'collection_size': len(collection_data)
-        })
-    
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
+            'collection_size': len(collection_data),
+        }
+
+        yield send_complete()
+
+    return Response(stream_with_context(event_stream()), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 @app.route('/results')
 def results():
     """Display analysis results."""
-    analysis = session.get('analysis')
-    collection_size = session.get('collection_size', 0)
-    
+    # Retrieve analysis from server-side store (written by SSE stream) or session fallback.
+    sid = session.get('discogs_token', 'anon')
+    pending = pending_analysis.pop(sid, None)
+    if pending:
+        analysis = pending['analysis']
+        collection_size = pending['collection_size']
+        # Persist into session for page refreshes.
+        session['analysis'] = analysis
+        session['collection_size'] = collection_size
+    else:
+        analysis = session.get('analysis')
+        collection_size = session.get('collection_size', 0)
+
     if not analysis:
         return render_template('error.html', message='No analysis found. Please generate a report first.'), 400
-    
+
+    # Backward-compat: old analysis format lacks growth_areas; redirect to regenerate.
+    if 'growth_areas' not in analysis:
+        return redirect(url_for('index'))
+
     return render_template('results.html', analysis=analysis, collection_size=collection_size)
 
 if __name__ == '__main__':
