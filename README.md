@@ -1,6 +1,6 @@
-# Record Collection Analyzer
+# Vinyl Reporter
 
-An AI-powered web application that analyzes your Discogs record collection and provides insights, recommendations, and improvements.
+An AI-powered web application that analyzes your Discogs record collection and provides insights, recommendations, and personalized suggestions.
 
 ## Features
 
@@ -25,7 +25,7 @@ An AI-powered web application that analyzes your Discogs record collection and p
 1. Navigate to [Discogs Developer Settings](https://www.discogs.com/settings/developers)
 2. Click "Create an application"
 3. Fill out the application details:
-   - **Application Name**: Record Collection Analyzer (or your choice)
+   - **Application Name**: Vinyl Reporter (or your choice)
    - **Description**: AI-powered collection analysis
    - **Website URL**: Your app URL (or `http://localhost:5000` for development)
    - **Callback URL**: `http://localhost:5000/callback` (for local development)
@@ -53,7 +53,7 @@ Set up your environment variables:
 export OPENAI_API_KEY="your_openai_api_key_here"
 export DISCOGS_CONSUMER_KEY="your_discogs_consumer_key"
 export DISCOGS_CONSUMER_SECRET="your_discogs_consumer_secret"
-export DISCOGS_USER_AGENT="RecordCollectionAnalyzer/1.0"
+export DISCOGS_USER_AGENT="VinylReporter/1.0"
 export DISCOGS_CALLBACK_URL="http://localhost:5000/callback"
 export SECRET_KEY="your_secret_key_here"  # Optional, defaults to dev key
 ```
@@ -63,7 +63,7 @@ Or create a `.env` file:
 OPENAI_API_KEY=your_openai_api_key_here
 DISCOGS_CONSUMER_KEY=your_discogs_consumer_key
 DISCOGS_CONSUMER_SECRET=your_discogs_consumer_secret
-DISCOGS_USER_AGENT=RecordCollectionAnalyzer/1.0
+DISCOGS_USER_AGENT=VinylReporter/1.0
 DISCOGS_CALLBACK_URL=http://localhost:5000/callback
 SECRET_KEY=your_secret_key_here
 ```
