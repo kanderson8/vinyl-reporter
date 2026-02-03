@@ -169,25 +169,26 @@ def fetch_collection_from_discogs():
     except Exception as e:
         raise ValueError(f"Error fetching collection from Discogs: {str(e)}")
 
+MAX_COLLECTION_SIZE = 500
+
 def analyze_collection_with_llm(collection_data):
     """Use OpenAI to analyze the collection and generate insights."""
     collection_summary = []
-    for item in collection_data[:100]:
+    albums_to_analyze = collection_data[:MAX_COLLECTION_SIZE]
+    for item in albums_to_analyze:
         summary_line = f"{item['artist']} - {item['album']}"
         if item.get('year'):
             summary_line += f" ({item['year']})"
         if item.get('genre'):
             summary_line += f" [{item['genre']}]"
         collection_summary.append(summary_line)
-    
+
     collection_text = "\n".join(collection_summary)
-    total_albums = len(collection_data)
-    
+    num_analyzed = len(albums_to_analyze)
+
     prompt = f"""You are a music collection analyst. Analyze the following record collection and provide insights.
 
-IMPORTANT: You must consider ALL {total_albums} albums in this collection when forming your analysis. Base your vibe summary, strengths, and growth areas on the ENTIRE collection, not just a subset.
-
-Collection ({total_albums} albums):
+Collection ({num_analyzed} albums):
 {collection_text}
 
 Please provide a JSON response with the following structure:
@@ -373,7 +374,12 @@ def generate_report():
             return jsonify({
                 'error': 'No collection data found. Your Discogs collection appears to be empty, or there was an issue accessing it.'
             }), 400
-        
+
+        if len(collection_data) > MAX_COLLECTION_SIZE:
+            return jsonify({
+                'error': f'Your collection has {len(collection_data)} albums. Collections over {MAX_COLLECTION_SIZE} albums are not currently supported.'
+            }), 400
+
         analysis = analyze_collection_with_llm(collection_data)
         
         session['analysis'] = analysis
@@ -423,6 +429,9 @@ def generate_report_stream():
         cached = get_cached_collection(user.username)
         if cached is not None:
             collection_data = cached
+            if len(collection_data) > MAX_COLLECTION_SIZE:
+                yield send_error(f'Your collection has {len(collection_data)} albums. Collections over {MAX_COLLECTION_SIZE} albums are not currently supported.')
+                return
             yield send_status('step-fetch', f'Using cached collection ({len(collection_data)} albums)')
             yield send_status('step-analyze', f'Analyzing {len(collection_data)} albums with AI...')
         else:
@@ -496,6 +505,10 @@ def generate_report_stream():
 
                 if not collection_data:
                     yield send_error('No albums found in your collection.')
+                    return
+
+                if len(collection_data) > MAX_COLLECTION_SIZE:
+                    yield send_error(f'Your collection has {len(collection_data)} albums. Collections over {MAX_COLLECTION_SIZE} albums are not currently supported.')
                     return
 
                 set_cached_collection(user.username, collection_data)
