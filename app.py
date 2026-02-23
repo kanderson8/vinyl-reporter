@@ -182,8 +182,9 @@ def _build_collection_text(collection_data):
     return "\n".join(collection_summary), len(albums_to_analyze)
 
 
-def _call_llm(client, prompt):
+def _call_llm(prompt):
     """Make a single LLM call and return parsed JSON."""
+    client = get_openai_client()
     response = client.chat.completions.create(
         model="gpt-5.2",
         messages=[
@@ -260,10 +261,9 @@ Every recommended album MUST NOT already appear in the collection listed above. 
 Be specific and insightful. Reference specific artists, genres, or eras when relevant."""
 
     try:
-        client = get_openai_client()
         with ThreadPoolExecutor(max_workers=2) as executor:
-            overview_future = executor.submit(_call_llm, client, overview_prompt)
-            growth_future = executor.submit(_call_llm, client, growth_prompt)
+            overview_future = executor.submit(_call_llm, overview_prompt)
+            growth_future = executor.submit(_call_llm, growth_prompt)
             overview = overview_future.result()
             growth = growth_future.result()
 
