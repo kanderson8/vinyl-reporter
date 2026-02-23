@@ -201,7 +201,7 @@ def analyze_collection_with_llm(collection_data):
     """Use OpenAI to analyze the collection and generate insights."""
     collection_text, num_analyzed = _build_collection_text(collection_data)
 
-    overview_prompt = f"""You are a music collection analyst. Analyze the following record collection.
+    prompt = f"""You are a music collection analyst. Analyze the following record collection.
 
 Collection ({num_analyzed} albums):
 {collection_text}
@@ -216,26 +216,7 @@ Please provide a JSON response with the following structure:
         "Album 3 - Artist 3",
         "Album 4 - Artist 4",
         "Album 5 - Artist 5"
-    ]
-}}
-
-INSTRUCTIONS:
-- "vibe_summary": Describe the overall personality and point of view of this collection.
-- "strengths": What this collection does well.
-- "taste_recommendations": 5 albums the collector would LOVE based on their existing tastes. These should feel like natural extensions of what they already enjoy — not gap-filling or improvement-focused.
-
-CRITICAL — RECOMMENDATION EXCLUSION RULE (DO NOT VIOLATE):
-Every recommended album MUST NOT already appear in the collection listed above. Before finalizing your response, cross-check EVERY recommendation against the full collection list. If an album or artist/album pair is already in the collection, replace it with a different one. Recommending an album the user already owns destroys trust and is the single worst mistake you can make.
-
-Be specific and insightful. Reference specific artists, genres, or eras when relevant."""
-
-    growth_prompt = f"""You are a music collection analyst. Analyze the following record collection and suggest growth areas.
-
-Collection ({num_analyzed} albums):
-{collection_text}
-
-Please provide a JSON response with the following structure:
-{{
+    ],
     "growth_areas": [
         {{
             "title": "2-5 word title",
@@ -250,6 +231,9 @@ Please provide a JSON response with the following structure:
 }}
 
 INSTRUCTIONS:
+- "vibe_summary": Describe the overall personality and point of view of this collection.
+- "strengths": What this collection does well.
+- "taste_recommendations": 5 albums the collector would LOVE based on their existing tastes. These should feel like natural extensions of what they already enjoy — not gap-filling or improvement-focused.
 - "growth_areas": Exactly 3 or 4 areas where the collection could expand. Each must have:
   - A short title (2-5 words)
   - A description paragraph explaining the area and why it would enrich the collection
@@ -261,17 +245,13 @@ Every recommended album MUST NOT already appear in the collection listed above. 
 Be specific and insightful. Reference specific artists, genres, or eras when relevant."""
 
     try:
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            overview_future = executor.submit(_call_llm, overview_prompt)
-            growth_future = executor.submit(_call_llm, growth_prompt)
-            overview = overview_future.result()
-            growth = growth_future.result()
+        analysis = _call_llm(prompt)
 
         return {
-            'vibe_summary': overview['vibe_summary'],
-            'strengths': overview['strengths'],
-            'taste_recommendations': overview['taste_recommendations'],
-            'growth_areas': growth['growth_areas'],
+            'vibe_summary': analysis['vibe_summary'],
+            'strengths': analysis['strengths'],
+            'taste_recommendations': analysis['taste_recommendations'],
+            'growth_areas': analysis['growth_areas'],
         }
     except Exception as e:
         raise ValueError(f"Error calling LLM: {str(e)}")
