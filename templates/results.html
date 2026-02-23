@@ -200,7 +200,8 @@
         .carousel-track {
             display: flex;
             height: 100%;
-            transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+            will-change: transform;
         }
 
         .slide {
@@ -210,6 +211,14 @@
             align-items: center;
             justify-content: center;
             padding: 10px 0;
+            opacity: 0.45;
+            transform: scale(0.985);
+            transition: opacity 0.45s ease, transform 0.45s ease;
+        }
+
+        .slide.active {
+            opacity: 1;
+            transform: scale(1);
         }
 
         .section {
@@ -223,6 +232,29 @@
             overflow-y: auto;
             max-height: 100%;
             width: 100%;
+            transform: translateY(10px);
+            opacity: 0;
+            transition: transform 0.45s ease, opacity 0.45s ease, box-shadow 0.3s ease;
+        }
+
+        .slide.active .section {
+            transform: translateY(0);
+            opacity: 1;
+            box-shadow: 0 14px 54px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(139, 92, 246, 0.08);
+        }
+
+        .section::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .section::-webkit-scrollbar-thumb {
+            background: rgba(139, 92, 246, 0.35);
+            border-radius: 8px;
+        }
+
+        .section::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
         }
 
         .section::before {
@@ -501,6 +533,30 @@
         .dot:hover:not(.active) {
             background: rgba(139, 92, 246, 0.5);
         }
+
+        .slide-counter {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: #9ca3af;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 6px 10px;
+            border-radius: 999px;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        @media (max-width: 760px) {
+            .header { padding: 16px 14px; }
+            .carousel-wrapper { top: 96px; bottom: 92px; }
+            .section { padding: 22px; border-radius: 16px; }
+            .section h2 { font-size: 1.15rem; }
+            .nav-bar { gap: 10px; padding: 12px 10px; }
+            .nav-btn, .btn-cta { padding: 8px 14px; font-size: 0.85rem; }
+            .dots { gap: 7px; }
+            .dot { width: 8px; height: 8px; }
+            .slide-counter { font-size: 0.72rem; min-width: 52px; }
+        }
     </style>
 </head>
 <body>
@@ -567,14 +623,13 @@
                     <div class="section growth-overview">
                         <h2>
                             <span class="section-icon">&#128200;</span>
-                            Areas for Growth
+                            Areas to Explore
                         </h2>
                         <ul class="growth-area-list">
                             {% for area in analysis.growth_areas %}
                             <li>
                                 <span class="growth-number">{{ loop.index }}</span>
                                 <span class="growth-title">{{ area.title }}</span>
-                                <div class="growth-desc">{{ area.description }}</div>
                             </li>
                             {% endfor %}
                         </ul>
@@ -618,6 +673,8 @@
             {% endfor %}
         </div>
 
+        <div class="slide-counter" id="slideCounter">1 / {{ 4 + analysis.growth_areas|length }}</div>
+
         <button class="nav-btn" id="nextBtn">
             Next
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -635,7 +692,9 @@
         const nextBtn = document.getElementById('nextBtn');
         const analyzeBtn = document.getElementById('analyzeBtn');
         const dots = document.querySelectorAll('.dot');
-        const totalSlides = document.querySelectorAll('.slide').length;
+        const slides = document.querySelectorAll('.slide');
+        const slideCounter = document.getElementById('slideCounter');
+        const totalSlides = slides.length;
         let current = 0;
 
         function goTo(index) {
@@ -643,8 +702,14 @@
             current = index;
             track.style.transform = `translateX(-${current * 100}%)`;
 
+            // Update active slide state for smooth reveal animations
+            slides.forEach((s, i) => s.classList.toggle('active', i === current));
+
             // Update dots
             dots.forEach((d, i) => d.classList.toggle('active', i === current));
+
+            // Update counter
+            if (slideCounter) slideCounter.textContent = `${current + 1} / ${totalSlides}`;
 
             // Update buttons
             prevBtn.disabled = current === 0;
@@ -667,10 +732,27 @@
 
         document.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowLeft') goTo(current - 1);
-            if (e.key === 'ArrowRight') {
-                if (current < totalSlides - 1) goTo(current + 1);
-            }
+            if (e.key === 'ArrowRight' && current < totalSlides - 1) goTo(current + 1);
         });
+
+        // Touch swipe support for mobile
+        let touchStartX = 0;
+        let touchEndX = 0;
+
+        track.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+        }, { passive: true });
+
+        track.addEventListener('touchend', (e) => {
+            touchEndX = e.changedTouches[0].screenX;
+            const delta = touchStartX - touchEndX;
+            if (Math.abs(delta) < 45) return;
+            if (delta > 0) goTo(current + 1);
+            if (delta < 0) goTo(current - 1);
+        }, { passive: true });
+
+        // Initial active state
+        goTo(0);
     </script>
 </body>
 </html>
