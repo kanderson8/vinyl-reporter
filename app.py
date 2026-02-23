@@ -1,5 +1,6 @@
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context
 from openai import OpenAI
@@ -124,39 +125,35 @@ def fetch_collection_from_discogs():
 
         for item in releases:
             try:
-                release = item.release
-                artists = [artist.name for artist in release.artists] if release.artists else []
+                data = item.release.data
+
+                artists = [a['name'] for a in data.get('artists', [])] if data.get('artists') else []
                 artist_name = ', '.join(artists) if artists else 'Unknown Artist'
 
-                genres = release.genres if hasattr(release, 'genres') and release.genres else []
+                genres = data.get('genres', []) or []
                 genre = ', '.join(genres) if genres else ''
 
-                styles = release.styles if hasattr(release, 'styles') and release.styles else []
+                styles = data.get('styles', []) or []
                 style = ', '.join(styles) if styles else ''
 
-                labels = [label.name for label in release.labels] if hasattr(release, 'labels') and release.labels else []
+                labels = [l['name'] for l in data.get('labels', [])] if data.get('labels') else []
                 label_name = ', '.join(labels) if labels else ''
 
                 formats = []
-                if hasattr(release, 'formats') and release.formats:
-                    for f in release.formats:
-                        if isinstance(f, dict):
-                            formats.append(f.get('name', ''))
-                        elif hasattr(f, 'name'):
-                            formats.append(f.name)
+                for f in (data.get('formats', []) or []):
+                    if isinstance(f, dict):
+                        formats.append(f.get('name', ''))
                 format_str = ', '.join([f for f in formats if f]) if formats else ''
 
                 album_info = {
                     'artist': artist_name,
-                    'album': release.title,
+                    'album': data.get('title', ''),
                     'label': label_name,
-                    'year': str(release.year) if release.year else '',
+                    'year': str(data.get('year', '')) if data.get('year') else '',
                     'genre': genre or style,
                     'format': format_str
                 }
                 collection_data.append(album_info)
-
-                time.sleep(0.25)
 
             except Exception:
                 continue
@@ -171,10 +168,10 @@ def fetch_collection_from_discogs():
 
 MAX_COLLECTION_SIZE = 500
 
-def analyze_collection_with_llm(collection_data):
-    """Use OpenAI to analyze the collection and generate insights."""
-    collection_summary = []
+def _build_collection_text(collection_data):
+    """Build the collection summary text for LLM prompts."""
     albums_to_analyze = collection_data[:MAX_COLLECTION_SIZE]
+    collection_summary = []
     for item in albums_to_analyze:
         summary_line = f"{item['artist']} - {item['album']}"
         if item.get('year'):
@@ -182,11 +179,28 @@ def analyze_collection_with_llm(collection_data):
         if item.get('genre'):
             summary_line += f" [{item['genre']}]"
         collection_summary.append(summary_line)
+    return "\n".join(collection_summary), len(albums_to_analyze)
 
-    collection_text = "\n".join(collection_summary)
-    num_analyzed = len(albums_to_analyze)
 
-    prompt = f"""You are a music collection analyst. Analyze the following record collection and provide insights.
+def _call_llm(client, prompt):
+    """Make a single LLM call and return parsed JSON."""
+    response = client.chat.completions.create(
+        model="gpt-5.2",
+        messages=[
+            {"role": "system", "content": "You are a knowledgeable music critic and collection analyst. Provide thoughtful, specific insights about record collections."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7,
+        response_format={"type": "json_object"}
+    )
+    return json.loads(response.choices[0].message.content)
+
+
+def analyze_collection_with_llm(collection_data):
+    """Use OpenAI to analyze the collection and generate insights."""
+    collection_text, num_analyzed = _build_collection_text(collection_data)
+
+    overview_prompt = f"""You are a music collection analyst. Analyze the following record collection.
 
 Collection ({num_analyzed} albums):
 {collection_text}
@@ -201,7 +215,26 @@ Please provide a JSON response with the following structure:
         "Album 3 - Artist 3",
         "Album 4 - Artist 4",
         "Album 5 - Artist 5"
-    ],
+    ]
+}}
+
+INSTRUCTIONS:
+- "vibe_summary": Describe the overall personality and point of view of this collection.
+- "strengths": What this collection does well.
+- "taste_recommendations": 5 albums the collector would LOVE based on their existing tastes. These should feel like natural extensions of what they already enjoy — not gap-filling or improvement-focused.
+
+CRITICAL — RECOMMENDATION EXCLUSION RULE (DO NOT VIOLATE):
+Every recommended album MUST NOT already appear in the collection listed above. Before finalizing your response, cross-check EVERY recommendation against the full collection list. If an album or artist/album pair is already in the collection, replace it with a different one. Recommending an album the user already owns destroys trust and is the single worst mistake you can make.
+
+Be specific and insightful. Reference specific artists, genres, or eras when relevant."""
+
+    growth_prompt = f"""You are a music collection analyst. Analyze the following record collection and suggest growth areas.
+
+Collection ({num_analyzed} albums):
+{collection_text}
+
+Please provide a JSON response with the following structure:
+{{
     "growth_areas": [
         {{
             "title": "2-5 word title",
@@ -216,31 +249,30 @@ Please provide a JSON response with the following structure:
 }}
 
 INSTRUCTIONS:
-- "taste_recommendations": 5 albums the collector would LOVE based on their existing tastes. These should feel like natural extensions of what they already enjoy — not gap-filling or improvement-focused.
 - "growth_areas": Exactly 3 or 4 areas where the collection could expand. Each must have:
   - A short title (2-5 words)
   - A description paragraph explaining the area and why it would enrich the collection
   - Exactly 3 album recommendations for that area
 
 CRITICAL — RECOMMENDATION EXCLUSION RULE (DO NOT VIOLATE):
-Every single recommended album — in BOTH "taste_recommendations" AND every growth area's "recommendations" — MUST NOT already appear in the collection listed above. Before finalizing your response, cross-check EVERY recommendation against the full collection list. If an album or artist/album pair is already in the collection, replace it with a different one. Recommending an album the user already owns destroys trust and is the single worst mistake you can make. All recommendations must also be unique across the entire response (no duplicates).
+Every recommended album MUST NOT already appear in the collection listed above. Before finalizing your response, cross-check EVERY recommendation against the full collection list. If an album or artist/album pair is already in the collection, replace it with a different one. Recommending an album the user already owns destroys trust and is the single worst mistake you can make. All recommendations must be unique (no duplicates).
 
 Be specific and insightful. Reference specific artists, genres, or eras when relevant."""
 
     try:
         client = get_openai_client()
-        response = client.chat.completions.create(
-            model="gpt-5.2",
-            messages=[
-                {"role": "system", "content": "You are a knowledgeable music critic and collection analyst. Provide thoughtful, specific insights about record collections."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            response_format={"type": "json_object"}
-        )
-        
-        analysis = json.loads(response.choices[0].message.content)
-        return analysis
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            overview_future = executor.submit(_call_llm, client, overview_prompt)
+            growth_future = executor.submit(_call_llm, client, growth_prompt)
+            overview = overview_future.result()
+            growth = growth_future.result()
+
+        return {
+            'vibe_summary': overview['vibe_summary'],
+            'strengths': overview['strengths'],
+            'taste_recommendations': overview['taste_recommendations'],
+            'growth_areas': growth['growth_areas'],
+        }
     except Exception as e:
         raise ValueError(f"Error calling LLM: {str(e)}")
 
@@ -463,33 +495,31 @@ def generate_report_stream():
 
                 for item in releases:
                     try:
-                        release = item.release
-                        artists = [artist.name for artist in release.artists] if release.artists else []
+                        data = item.release.data
+
+                        artists = [a['name'] for a in data.get('artists', [])] if data.get('artists') else []
                         artist_name = ', '.join(artists) if artists else 'Unknown Artist'
 
-                        genres = release.genres if hasattr(release, 'genres') and release.genres else []
+                        genres = data.get('genres', []) or []
                         genre = ', '.join(genres) if genres else ''
 
-                        styles = release.styles if hasattr(release, 'styles') and release.styles else []
+                        styles = data.get('styles', []) or []
                         style = ', '.join(styles) if styles else ''
 
-                        labels = [label.name for label in release.labels] if hasattr(release, 'labels') and release.labels else []
+                        labels = [l['name'] for l in data.get('labels', [])] if data.get('labels') else []
                         label_name = ', '.join(labels) if labels else ''
 
                         formats = []
-                        if hasattr(release, 'formats') and release.formats:
-                            for f in release.formats:
-                                if isinstance(f, dict):
-                                    formats.append(f.get('name', ''))
-                                elif hasattr(f, 'name'):
-                                    formats.append(f.name)
+                        for f in (data.get('formats', []) or []):
+                            if isinstance(f, dict):
+                                formats.append(f.get('name', ''))
                         format_str = ', '.join([f for f in formats if f]) if formats else ''
 
                         album_info = {
                             'artist': artist_name,
-                            'album': release.title,
+                            'album': data.get('title', ''),
                             'label': label_name,
-                            'year': str(release.year) if release.year else '',
+                            'year': str(data.get('year', '')) if data.get('year') else '',
                             'genre': genre or style,
                             'format': format_str
                         }
@@ -499,7 +529,6 @@ def generate_report_stream():
                         if album_count % 10 == 0:
                             yield send_status('step-fetch', f'Fetching collection... {album_count} albums found')
 
-                        time.sleep(0.25)
                     except Exception:
                         continue
 
