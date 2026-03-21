@@ -186,7 +186,7 @@ def _call_llm(prompt):
     """Make a single LLM call and return parsed JSON."""
     client = get_openai_client()
     response = client.chat.completions.create(
-        model="gpt-5.2",
+        model="gpt-5.4-mini",
         messages=[
             {"role": "system", "content": "You are a knowledgeable music critic and collection analyst. Provide thoughtful, specific insights about record collections."},
             {"role": "user", "content": prompt}
